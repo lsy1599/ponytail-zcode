@@ -75,5 +75,5 @@ ponytail-zcode/                      # 仓库根 = 插件市场根
 
 ## 许可与致谢
 
-- 上游 [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)（MIT，本包对应 commit `09c434a` = v5.3.2）
+- 上游 [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)（MIT，本包对应 commit `96608e0` = v5.3.3）
 - 本仓库是它的 ZCode 适配层（hooks 输出 ZCode 要求的 JSON 格式、会话级档位存档），上游文件未改动，沿用 MIT，见 [LICENSE](ponytail-zcode/LICENSE)
