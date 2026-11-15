@@ -20,7 +20,7 @@ function visibleStatus(line) {
 
   // review is a session-only mode defined by the ponytail-review skill; there is
   // no ruleset to inject, only the pointer to that skill.
-  if (/^[/@$]?ponytail(?:-review|:ponytail-review)\b/.test(lower)) {
+  if (/^[/@$]?ponytail(?:-review|\s+review|:ponytail-review)\b/.test(lower)) {
     lib.emit('UserPromptSubmit', getPonytailInstructions('review') + visibleStatus('ponytail: review'));
     return;
   }
@@ -28,17 +28,25 @@ function visibleStatus(line) {
   // The leading / is optional: ZCode opens its slash/skill picker on "/", and
   // `ponytail` is also an installed skill name, so a typed "/ponytail ultra" may
   // reach this hook expanded rather than literally. Accepting the bare form makes
-  // switching work either way. Anchored, so prose mentioning ponytail is ignored.
-  const cmd = lower.match(/^[/@$]?ponytail(?::ponytail)?(?:[\s]+(\S+))?(?:[\s]+(\S+))?/);
+  // switching work either way. Anchored, and the word must be followed by
+  // whitespace or end-of-line (lookahead, \w is ASCII-only so \b would miss
+  // CJK gluing), so prose mentioning ponytail is ignored.
+  const cmd = lower.match(/^[/@$]?ponytail(?::ponytail)?(?=\s|$)(?:[\s]+(\S+))?(?:[\s]+(\S+))?/);
   if (cmd) {
     const level = cmd[1];
     const rest = cmd[2];
 
     if (level === 'default') {
       if (rest && LEVELS.includes(rest)) {
-        writeDefaultMode(rest);
-        lib.emit('UserPromptSubmit', 'PONYTAIL DEFAULT SET — new sessions start in ' + rest + '.' +
-          visibleStatus('ponytail: default ' + rest));
+        // writeDefaultMode is vendored and unguarded: an unwritable config dir
+        // must not crash this hook (crash = exit 1, raw stack on stderr).
+        try {
+          writeDefaultMode(rest);
+          lib.emit('UserPromptSubmit', 'PONYTAIL DEFAULT SET — new sessions start in ' + rest + '.' +
+            visibleStatus('ponytail: default ' + rest));
+        } catch (e) {
+          lib.emit('UserPromptSubmit', 'PONYTAIL: could not save default mode (' + (e.code || e.message) + ').');
+        }
       }
       return;
     }

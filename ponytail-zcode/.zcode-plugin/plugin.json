@@ -3,8 +3,7 @@
   "version": "2.0.2",
   "description": "ponytail 的 ZCode 适配层：会话开始时把「懒资深开发」规则集注入上下文，并让 /ponytail 档位切换真正生效。上游文件原样搬运，未改一行。",
   "author": {
-    "name": "lsy1599"
+    "name": "local adapter wrapping DietrichGebert/ponytail (MIT)"
   },
-  "license": "MIT",
   "hooks": "./hooks/hooks.json"
 }

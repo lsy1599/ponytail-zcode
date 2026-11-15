@@ -43,9 +43,9 @@ function inject(event, mode) {
 
   if (live) {
     // Same session coming back from resume/clear. Keep the level the user chose,
-    // including "off". A compact dropped the ruleset along with the summarized
-    // context, so re-inject it; otherwise stay quiet.
-    if (input.source === 'compact' && live !== 'off') {
+    // including "off". A compact or /clear dropped the ruleset along with the
+    // summarized context, so re-inject it; otherwise stay quiet.
+    if ((input.source === 'compact' || input.source === 'clear') && live !== 'off') {
       inject('SessionStart', live);
     }
     return;

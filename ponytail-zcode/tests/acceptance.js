@@ -1,7 +1,7 @@
 // Acceptance test for the ponytail ZCode adapter hooks.
 // Run: node tests/acceptance.js
 // Sandboxes both the plugin data dir and APPDATA so nothing touches real state.
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -65,7 +65,11 @@ const manifest = JSON.parse(fs.readFileSync(path.join(PLUGIN, '.zcode-plugin/plu
 const declared = path.resolve(PLUGIN, manifest.hooks.replace(/^\.\//, ''));
 check('manifest hooks field points at a real file', fs.existsSync(declared), manifest.hooks);
 const hooksJson = JSON.parse(fs.readFileSync(declared, 'utf8'));
-check('manifest name matches the plugin directory name', manifest.name === path.basename(PLUGIN), manifest.name);
+// In a versioned install layout (cache/<market>/<name>/<version>) the plugin
+// sits in a version-numbered directory, so the name check only applies to a
+// source or distribution checkout.
+const dirName = path.basename(PLUGIN);
+check('manifest name matches the plugin directory name', manifest.name === dirName || /^\d+\.\d+\.\d+$/.test(dirName), manifest.name);
 const EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse', 'PostToolUseFailure', 'Stop'];
 // ZCode's hook entry schema is .strict(): an unsupported key drops the hook.
 const ENTRY_KEYS = new Set(['type', 'command', 'enabled', 'args', 'timeout', 'timeoutMs', 'statusMessage', 'async', 'shell']);
@@ -201,5 +205,56 @@ check('deactivation needs the whole message (upstream intent)', r.empty, r.illeg
 r = ctxOf(run('zcode-prompt.js', P('sess-D', 'ponytail off')));
 check('bare off switches off', (r.text || '').startsWith('PONYTAIL MODE OFF'), JSON.stringify(r.text));
 
-console.log('\n' + (fail ? 'FAILED' : 'ALL PASS') + ': ' + pass + ' passed, ' + fail + ' failed');
-process.exit(fail ? 1 : 0);
+console.log('\n15. no-space and hyphenated mentions must not false-trigger');
+r = ctxOf(run('zcode-prompt.js', P('sess-D', 'ponytail是什么')));
+check('CJK glued to the word stays silent', r.empty, r.illegal || JSON.stringify(r.text));
+r = ctxOf(run('zcode-prompt.js', P('sess-D', 'ponytail-mode is noisy')));
+check('hyphenated mention stays silent', r.empty, r.illegal || JSON.stringify(r.text));
+
+console.log('\n16. "/ponytail review" (space form) points at the review skill');
+r = ctxOf(run('zcode-prompt.js', P('sess-D', '/ponytail review')));
+check('review pointer emitted', /review/i.test(r.text || ''), r.illegal || JSON.stringify(r.text));
+
+console.log('\n17. no parseable session id -> switch confirmed, but no shared state write');
+r = ctxOf(run('zcode-prompt.js', P('', '/ponytail full'), { ZCODE_SESSION_ID: '', CLAUDE_SESSION_ID: '' }));
+check('switch still confirmed', (r.text || '').startsWith('PONYTAIL MODE CHANGED — level: full'), r.illegal || JSON.stringify(r.text));
+check('no shared mode file created', !fs.existsSync(path.join(BOX, 'mode')), 'mode file exists');
+
+console.log('\n18. /clear re-injects like compact; off survives clear too');
+r = ctxOf(run('zcode-session-start.js', S('sess-B', { source: 'clear' })));
+check('clear re-injects the kept level', (r.text || '').startsWith('PONYTAIL MODE ACTIVE — level: full'), r.illegal || JSON.stringify(r.text));
+r = ctxOf(run('zcode-session-start.js', S('sess-A', { source: 'clear' })));
+check('off stays off across clear', r.empty, r.illegal || (r.text || '').slice(0, 60));
+
+// Section 19 needs a real pipe that keeps stdin open, so it runs the process
+// with spawn instead of spawnSync; the summary has to wait for it.
+(async () => {
+  console.log('\n19. stdin streamed in chunks past the old fixed deadline still parses');
+  const payload = JSON.stringify(P('sess-chunk', '/ponytail lite'));
+  await new Promise((resolve) => {
+    const p = spawn(NODE, [path.join(PLUGIN, 'hooks', 'zcode-prompt.js')], {
+      encoding: 'utf8',
+      env: { ...process.env, ZCODE_PLUGIN_DATA: BOX, ZCODE_PROJECT_DIR: MAP_BOX, APPDATA: APPDATA_BOX, PONYTAIL_DEFAULT_MODE: '', PONYTAIL_MAP: '', PONYTAIL_STATUS: '' },
+    });
+    let out = '';
+    p.stdout.on('data', (d) => { out += d; });
+    p.on('close', () => {
+      const c = ctxOf({ raw: out });
+      check('chunked payload resolves fully', c.h && c.h.hookEventName === 'UserPromptSubmit' &&
+        (c.text || '').startsWith('PONYTAIL MODE CHANGED — level: lite'), c.illegal || JSON.stringify(c.text && c.text.slice(0, 60)));
+      check('chunked session state written', fs.existsSync(path.join(BOX, 'mode-sess-chunk')), 'no mode-sess-chunk');
+      resolve();
+    });
+    // ~2s of streaming: crosses the 1.5s deadline the old code cut at, while the
+    // 150ms gaps stay far below the new 1.5s silence window.
+    let i = 0;
+    const iv = setInterval(() => {
+      if (i < payload.length) { p.stdin.write(payload.slice(i, i + 4)); i += 4; return; }
+      clearInterval(iv);
+      p.stdin.end();
+    }, 150);
+  });
+
+  console.log('\n' + (fail ? 'FAILED' : 'ALL PASS') + ': ' + pass + ' passed, ' + fail + ' failed');
+  process.exit(fail ? 1 : 0);
+})();

@@ -38,6 +38,10 @@ function readMode(sessionId) {
 }
 
 function writeMode(sessionId, mode) {
+  // An unparseable payload has no session: never fall back to the shared 'mode'
+  // file, or one failed host run would overwrite the state every other
+  // parse-failed session reads.
+  if (!String(sessionId || '').replace(/[^A-Za-z0-9_-]/g, '')) return;
   try {
     fs.mkdirSync(stateDir(), { recursive: true });
     fs.writeFileSync(modePath(sessionId), mode);
@@ -61,26 +65,34 @@ function sessionIdOf(input) {
 }
 
 // Ported from upstream's guard for the same reason it exists there: a host that
-// never closes stdin would otherwise hang the session. Process whatever arrived
-// after a short fallback and exit.
+// never closes stdin would otherwise hang the session. The deadline resets on
+// every chunk, so a slow but steady stream is never cut mid-JSON; whatever
+// arrived after 1.5s of silence is processed and we exit.
 function readInput() {
   return new Promise((resolve) => {
     let raw = '';
     let done = false;
+    let timer;
     const finish = () => {
       if (done) return;
       done = true;
+      clearTimeout(timer);
       try {
         resolve(JSON.parse(raw.replace(/^\uFEFF/, '')));
       } catch (e) {
         resolve({});
       }
     };
+    const arm = () => { clearTimeout(timer); timer = setTimeout(finish, 1500).unref(); };
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => { raw += chunk; });
+    process.stdin.on('data', (chunk) => {
+      raw += chunk;
+      if (raw.length > 1000000) return finish();
+      arm();
+    });
     process.stdin.on('end', finish);
     process.stdin.on('error', finish);
-    setTimeout(finish, 1500).unref();
+    arm();
   });
 }
 
@@ -89,7 +101,9 @@ function readInput() {
 // empty stdout is the documented way to say nothing.
 function emit(event, additionalContext) {
   if (!additionalContext) return;
-  process.stdout.write(JSON.stringify({
+  // fs.writeSync, not process.stdout.write: an async pipe flush can be cut off
+  // when the process exits right after (upstream #1043).
+  fs.writeSync(1, JSON.stringify({
     hookSpecificOutput: { hookEventName: event, additionalContext },
   }));
 }
