@@ -90,3 +90,4 @@ UI 里禁用或卸载插件即可；另外用户级还装了一份同内容的 s
 - 本仓库 `AGENTS.md` 的核对门禁优先于 ponytail 的「测试也可以 YAGNI」——ponytail 只管少写代码，不能用来砍单测与核对。
 - vendored 的 `ponytail-map.js` 有两个上游已知小坑（改它就破坏 sha256 门禁，等上游修）：`PONYTAIL_MAP_CHARS` 设成非数字时字符上限失效；路径含空格的文件/目录会被地图跳过。
 - hook 契约（stdout 仅认 JSON 对象、hook 崩溃 fail-open、SessionStart 的 source 枚举 startup/resume/fork/clear/compact 等）已对照 ZCode 3.18.2 源码逐一核实。
+- **TortoiseGit 用户**：`upstream/` 是 git 克隆，TGitCache.exe 会常驻监视任何包含它的目录拷贝（如 ZCode 的市场快照），导致 ZCode 刷新市场时因无法改名快照目录而报 `EPERM: rename ... .backup`。添加市场时若把整个源目录拷进了快照，删掉快照里的 `upstream/` 即恢复；将来删除重加市场也会把 `upstream/` 再拷进去，需同样处理。
